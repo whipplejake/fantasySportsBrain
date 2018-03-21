@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import socket
+from time import sleep
 
 import requests
 
@@ -240,14 +242,17 @@ class OffensiveStats:
             for player in json_file["players"]:
                 cur_p = Player(player, "", "")
                 for game in json_file["players"][player]["games"]:
-                    if game not in self.games_ids:
-                        self.games_ids.append(game)
-                        logger.debug("Adding game {} to the lookup list".format(game))
-                    cur_gs = GameStats(player, game)
-                    cur_gs.update_stats_dict(json_file["players"][player]["games"][game])
-                    cur_gs.set_player_name(json_file["players"][player]["games"][game]["player_name"])
-                    cur_p.name = json_file["players"][player]["games"][game]["player_name"]
-                    cur_p.add_game(cur_gs)
+                    if game == "overall":
+                        pass
+                    else:
+                        if game not in self.games_ids:
+                            self.games_ids.append(game)
+                            logger.debug("Adding game {} to the lookup list".format(game))
+                        cur_gs = GameStats(player, game)
+                        cur_gs.update_stats_dict(json_file["players"][player]["games"][game])
+                        cur_gs.set_player_name(json_file["players"][player]["games"][game]["player_name"])
+                        cur_p.name = json_file["players"][player]["games"][game]["player_name"]
+                        cur_p.add_game(cur_gs)
                 self.players[cur_p.p_id] = cur_p
                 self.player_lookup[cur_p.name] = cur_p.p_id
 
@@ -305,17 +310,23 @@ class Player:
         self.games = dict()
 
     def print_JSON(self, open_file):
-        open_file.write("\"{}\": {{\"name\": \"{}\", \"position\": \"{}\", \"games\": {{".format(self.p_id,
-                                                                                                 self.name,
-                                                                                                 self.position))
+        overall = GameStats(self.p_id, "overall")
+        open_file.write("\"{}\": {{\"name\": \"{}\", \"games\": {{".format(self.p_id, self.name))
         sz = len(self.games.keys())
         i = 1
         for player in self.games:
+            overall.update_stats(self.games[player])
             self.games[player].print_JSON(open_file)
-            if i < sz:
-                i += 1
-                open_file.write(",")
-        open_file.write("}")
+            open_file.write(",")
+        overall.print_JSON(open_file)
+        if overall.pass_attemps > overall.rush_attemps and overall.pass_attemps > overall.targets:
+            self.position = "QB"
+        else:
+            if overall.rush_attemps > overall.targets:
+                self.position = "RB"
+            else:
+                self.position = "WR"
+        open_file.write("}}, \"position\": \"{}\"".format(self.position))
 
     # Add a game for the specific player
     def add_game(self, game: GameStats):
@@ -332,12 +343,33 @@ class StatReader:
 
     def __init__(self, game_id, master: OffensiveStats):
         self.game_id = game_id
-        self.request = requests.get("http://www.nfl.com/liveupdate/game-center/{}/{}_gtd.json".format(game_id,
-                                                                                                      game_id))
-        self.status = self.request.status_code
-        if self.request.status_code == 200:
-            self.stats = json.loads(self.request.text)["{}".format(self.game_id)]
         self.masterStats = master
+        self.haveFailed = 0
+        try:
+            self.haveFailed = 0
+            self.request = requests.get("http://www.nfl.com/liveupdate/game-center/{}/{}_gtd.json".format(game_id,
+                                                                                                          game_id))
+            sleep(.5)
+            self.status = self.request.status_code
+            if self.request.status_code == 200:
+                self.stats = json.loads(self.request.text)["{}".format(self.game_id)]
+        except socket.gaierror:
+            logger.error("Unable to create new connection for game stats {})".format(game_id))
+            self.haveFailed = 1
+            sleep(1)
+
+    def reattempt_connection(self):
+        try:
+            self.request = requests.get("http://www.nfl.com/liveupdate/game-center/{}/{}_gtd.json".format(self.game_id,
+                                                                                                          self.game_id))
+            sleep(.5)
+            self.status = self.request.status_code
+            if self.request.status_code == 200:
+                self.stats = json.loads(self.request.text)["{}".format(self.game_id)]
+        except socket.gaierror:
+            logger.error("Unable to create new connection for game stats {})".format(self.game_id))
+            self.haveFailed += 1
+            sleep(1)
 
     def get_offensive_players(self):
 

@@ -1,16 +1,17 @@
 import json
-from time import time, sleep
-from pprint import pprint
-
-import requests
 import logging
 import os
+import socket
+from time import time, sleep
+
+import requests
 
 logger = logging.getLogger('driver')
 
 # unique from weather underground (LIMITTED TO 500 CALLS A DAY/10 CALLS A MINUTE)
-# key = "37ae4ca0f857e390"
-key = "9b716298b39a6751"
+# key = "37ae4ca0f857e390" # jwhipple
+# key = "9b716298b39a6751" # jakejwhipple
+key = "696b0ae0af07c7cc"  # gojake
 
 weather_history_file = "\\resources\weatherHistory.json"
 
@@ -42,6 +43,7 @@ stadiums = {"HOU": {"city": "Houston", "state": "TX"},
             "KC": {"city": "Kansas_City", "state": "MO"},
             "LAC": {"city": "Inglewood", "state": "CA"},
             "LA": {"city": "Inglewood", "state": "CA"},
+            "LAR": {"city": "Inglewood", "state": "CA"},
             "SF": {"city": "Santa_Clara", "state": "CA"},
             "OAK": {"city": "Oakland", "state": "CA"},
             "SEA": {"city": "Seattle", "state": "WA"},
@@ -65,7 +67,7 @@ class WeatherStats:
             self.weather_stats = json.loads(read_file.read())
         else:
             self.weather_stats = dict()
-            logger.info("Weather storage file not found. Will create one when program is closed.")
+            logger.info("Weather storage file not found")
 
     def store_weather(self):
         write_file = open("{}{}".format(self.base_path, weather_history_file), "w+")
@@ -98,42 +100,47 @@ class WeatherStats:
                 self.minute_start = time()
 
             self.count_in_last_min += 1
-            request = requests.get("http://api.wunderground.com/api/{}/history_{}/q/{}/{}.json".format(key, date, state,
-                                                                                                       city))
-            if request.status_code == 200:
-                stats = json.loads(request.text)["history"]["observations"]
-                for entry in stats:
-                    if entry["date"]["hour"] == "{}".format(start_time):
-                        weather.info["temp1"] = float(entry["tempi"])
-                        weather.info["fog"] += int(entry["fog"])
-                        weather.info["rain"] += int(entry["rain"])
-                        weather.info["snow"] += int(entry["snow"])
-                        weather.info["hail"] += int(entry["hail"])
-                    elif entry["date"]["hour"] == "{}".format(start_time + 1):
-                        weather.info["temp2"] = float(entry["tempi"])
-                        weather.info["fog"] += int(entry["fog"])
-                        weather.info["rain"] += int(entry["rain"])
-                        weather.info["snow"] += int(entry["snow"])
-                        weather.info["hail"] += int(entry["hail"])
-                    elif entry["date"]["hour"] == "{}".format(start_time + 2):
-                        weather.info["temp3"] = float(entry["tempi"])
-                        weather.info["fog"] += int(entry["fog"])
-                        weather.info["rain"] += int(entry["rain"])
-                        weather.info["snow"] += int(entry["snow"])
-                        weather.info["hail"] += int(entry["hail"])
-                    elif entry["date"]["hour"] == "{}".format(start_time + 4):
-                        weather.info["temp4"] = float(entry["tempi"])
-                        weather.info["fog"] += int(entry["fog"])
-                        weather.info["rain"] += int(entry["rain"])
-                        weather.info["snow"] += int(entry["snow"])
-                        weather.info["hail"] += int(entry["hail"])
-                self.weather_stats["{}".format(game_id)] = weather.info
-            else:
-                logger.info("Failed to get weather for game {} ({}, {}, {}, {}".format(game_id, city, state, date,
-                                                                                       start_time))
-                return None
+            try:
+                request = requests.get("http://api.wunderground.com/api/{}/history_{}/q/{}/{}.json".format(key, date, state,
+                                                                                                           city))
+                sleep(.5)
+                if request.status_code == 200:
+                    stats = json.loads(request.text)["history"]["observations"]
+                    for entry in stats:
+                        if entry["date"]["hour"] == "{}".format(start_time):
+                            weather.info["temp1"] = float(entry["tempi"])
+                            weather.info["fog"] += int(entry["fog"])
+                            weather.info["rain"] += int(entry["rain"])
+                            weather.info["snow"] += int(entry["snow"])
+                            weather.info["hail"] += int(entry["hail"])
+                        elif entry["date"]["hour"] == "{}".format(start_time + 1):
+                            weather.info["temp2"] = float(entry["tempi"])
+                            weather.info["fog"] += int(entry["fog"])
+                            weather.info["rain"] += int(entry["rain"])
+                            weather.info["snow"] += int(entry["snow"])
+                            weather.info["hail"] += int(entry["hail"])
+                        elif entry["date"]["hour"] == "{}".format(start_time + 2):
+                            weather.info["temp3"] = float(entry["tempi"])
+                            weather.info["fog"] += int(entry["fog"])
+                            weather.info["rain"] += int(entry["rain"])
+                            weather.info["snow"] += int(entry["snow"])
+                            weather.info["hail"] += int(entry["hail"])
+                        elif entry["date"]["hour"] == "{}".format(start_time + 4):
+                            weather.info["temp4"] = float(entry["tempi"])
+                            weather.info["fog"] += int(entry["fog"])
+                            weather.info["rain"] += int(entry["rain"])
+                            weather.info["snow"] += int(entry["snow"])
+                            weather.info["hail"] += int(entry["hail"])
+                    self.weather_stats["{}".format(game_id)] = weather.info
+                else:
+                    logger.info("Failed to get weather for game {} ({}, {}, {}, {}".format(game_id, city, state, date,
+                                                                                           start_time))
+                    return None
+            except socket.gaierror:
+                logger.error("Unable to create new connection for game weather {} ({} {}, {})".format(game_id, date,
+                                                                                                      city, state))
         else:
-            logger.info("Weather data for game {} already in database".format(game_id))
+            logger.debug("Weather data for game {} already in database".format(game_id))
 
 
 class GameWeather:
